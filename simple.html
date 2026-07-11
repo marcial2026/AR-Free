@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Make Your AR Page</title>
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; min-height: 100%;
+    background: #101114;
+    color: #eee;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  #card {
+    max-width: 420px;
+    width: 100%;
+    background: #1a1c22;
+    border-radius: 16px;
+    padding: 32px 28px;
+    text-align: center;
+    border: 1px solid #272a33;
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p.sub { color: #999; font-size: 14px; margin: 0 0 26px; line-height: 1.5; }
+
+  #dropZone {
+    display: block;
+    border: 2px dashed #3a3d4a;
+    border-radius: 12px;
+    padding: 28px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  #dropZone:hover, #dropZone.drag { border-color: #6ee7b7; }
+  #dropZone img { max-width: 100%; max-height: 180px; border-radius: 8px; display:none; margin-bottom: 12px; }
+  #dropZone .hint { font-size: 14px; color: #aaa; }
+  #fileInput { display:none; }
+
+  #genBtn {
+    margin-top: 22px;
+    width: 100%;
+    background: #6ee7b7;
+    color: #0d1310;
+    border: none;
+    padding: 14px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  #genBtn:disabled { opacity: 0.5; cursor: default; }
+
+  #status {
+    margin-top: 16px;
+    font-size: 13px;
+    color: #6ee7b7;
+    min-height: 18px;
+  }
+  #status.err { color: #f28b82; }
+
+  .steps {
+    margin-top: 24px;
+    text-align: left;
+    font-size: 12px;
+    color: #777;
+    line-height: 1.7;
+    border-top: 1px solid #272a33;
+    padding-top: 16px;
+  }
+
+  #debugPanel {
+    margin-top: 20px;
+    text-align: left;
+    background: #000;
+    border: 1px solid #2e3140;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  #debugPanel .bar {
+    background: #1c1e26;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  #debugLog {
+    margin: 0;
+    padding: 10px;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #6ee7b7;
+    max-height: 180px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #debugLog .e { color: #f28b82; }
+  #debugLog .w { color: #f2b880; }
+</style>
+</head>
+<body>
+
+<div id="card">
+  <h1>Make your AR page</h1>
+  <p class="sub">Upload one picture. That's the image people scan with their phone — and it's also what pops up. Everything is compiled right here in your browser.</p>
+
+  <label id="dropZone" for="fileInput">
+    <img id="preview" />
+    <div class="hint" id="hint">Tap to choose a picture</div>
+  </label>
+  <input id="fileInput" type="file" accept="image/*" />
+
+  <button id="genBtn" disabled>Generate AR page</button>
+  <div id="status"></div>
+
+  <div class="steps">
+    1. Upload a picture with clear detail (a photo, poster, logo — avoid plain solid colors)<br>
+    2. Tap Generate — this takes a few seconds<br>
+    3. A file downloads: <b>ar-page.html</b><br>
+    4. Upload it to a free host (GitHub Pages, Netlify Drop) and open the link on a phone
+  </div>
+
+  <div id="debugPanel">
+    <div class="bar">Debug log</div>
+    <pre id="debugLog">waiting…</pre>
+  </div>
+</div>
+
+<script>
+const debugLog = document.getElementById('debugLog');
+let debugStarted = false;
+function log(msg, cls) {
+  if (!debugStarted) { debugLog.textContent = ''; debugStarted = true; }
+  const time = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = '[' + time + '] ' + msg;
+  debugLog.appendChild(line);
+  debugLog.scrollTop = debugLog.scrollHeight;
+}
+
+window.onerror = function (msg, url, line, col, err) {
+  log('PAGE ERROR (line ' + line + '): ' + msg, 'e');
+  const s = document.getElementById('status');
+  if (s) { s.className = 'err'; s.textContent = 'Something broke — see debug log below.'; }
+  return false;
+};
+
+const _origError = console.error;
+console.error = function (...args) { log('console.error: ' + args.map(String).join(' '), 'e'); _origError.apply(console, args); };
+const _origWarn = console.warn;
+console.warn = function (...args) { log('console.warn: ' + args.map(String).join(' '), 'w'); _origWarn.apply(console, args); };
+
+log('Page loaded. Waiting for a picture…');
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const preview = document.getElementById('preview');
+const hint = document.getElementById('hint');
+const genBtn = document.getElementById('genBtn');
+const status = document.getElementById('status');
+
+let chosenFile = null;
+let chosenDataUrl = null;
+
+['dragover'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add('drag'); }));
+['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove('drag'); }));
+dropZone.addEventListener('drop', e => {
+  log('File dropped.');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  log('File input change event fired. Files selected: ' + e.target.files.length);
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+  else log('No file present in the change event.', 'w');
+});
+
+function handleFile(file) {
+  log('Selected file: "' + file.name + '" (' + file.type + ', ' + Math.round(file.size/1024) + 'KB)');
+  status.className = '';
+  status.textContent = 'Reading "' + file.name + '"…';
+  chosenFile = file;
+  const reader = new FileReader();
+  reader.onerror = () => {
+    log('FileReader failed to read the file.', 'e');
+    status.className = 'err';
+    status.textContent = 'Could not read that file — try a different picture (jpg or png).';
+  };
+  reader.onload = (ev) => {
+    log('File read successfully as data URL (length ' + ev.target.result.length + ').');
+    chosenDataUrl = ev.target.result;
+    preview.src = chosenDataUrl;
+    preview.style.display = 'block';
+    hint.textContent = file.name;
+    genBtn.disabled = false;
+    log('Generate button enabled.');
+    status.className = '';
+    status.textContent = 'Picture loaded ✓ — ready to generate.';
+  };
+  reader.readAsDataURL(file);
+}
+
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+genBtn.addEventListener('click', async () => {
+  if (!chosenDataUrl) { log('Generate clicked but no picture loaded yet.', 'w'); return; }
+  log('Generate clicked. Starting pipeline…');
+  genBtn.disabled = true;
+  status.className = '';
+  status.textContent = 'Reading image…';
+
+  try {
+    log('Loading image into an <img> element…');
+    const img = await loadImage(chosenDataUrl);
+    log('Image element ready: ' + img.width + 'x' + img.height);
+
+    log('Checking for window.MINDAR…');
+    if (!window.MINDAR || !window.MINDAR.IMAGE || !window.MINDAR.IMAGE.Compiler) {
+      throw new Error('MindAR compiler is not available (window.MINDAR.IMAGE.Compiler missing). The library may not have loaded.');
+    }
+    log('MindAR compiler found. Starting compilation…');
+
+    status.textContent = 'Analyzing image features…';
+    const compiler = new window.MINDAR.IMAGE.Compiler();
+    await compiler.compileImageTargets([img], (progress) => {
+      status.textContent = 'Analyzing image features… ' + Math.round(progress) + '%';
+    });
+    log('Compilation finished.');
+
+    status.textContent = 'Packaging target data…';
+    const exportedBuffer = await compiler.exportData();
+    log('Exported target buffer: ' + exportedBuffer.byteLength + ' bytes.');
+    const base64Mind = arrayBufferToBase64(exportedBuffer);
+    const mindDataUri = 'data:application/octet-stream;base64,' + base64Mind;
+    log('Encoded target data as base64.');
+
+    status.textContent = 'Building your page…';
+    const html = buildARPage(chosenDataUrl, mindDataUri);
+    log('Built final HTML (' + html.length + ' characters).');
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ar-page.html';
+    a.click();
+    URL.revokeObjectURL(url);
+    log('Triggered download of ar-page.html.');
+
+    status.textContent = 'Done — ar-page.html downloaded ✓';
+    genBtn.disabled = false;
+  } catch (err) {
+    log('CAUGHT ERROR: ' + (err && err.message ? err.message : String(err)), 'e');
+    console.error(err);
+    status.className = 'err';
+    status.textContent = 'Something went wrong — see debug log below.';
+    genBtn.disabled = false;
+  }
+});
+
+function buildARPage(imageDataUrl, mindDataUri) {
+  const TAG_OPEN = '<' + 'script';
+  const TAG_CLOSE = '<' + '/script>';
+
+  const head = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>My AR Experience</title>
+${TAG_OPEN} src="https://aframe.io/releases/1.5.0/aframe.min.js">${TAG_CLOSE}
+${TAG_OPEN} src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js">${TAG_CLOSE}
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; font-family:-apple-system,Helvetica,Arial,sans-serif; background:#000; }
+  #intro { position:fixed; inset:0; background:#0b0b0f; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; z-index:20; padding:24px; box-sizing:border-box; }
+  #intro h1 { font-size:22px; margin-bottom:8px; font-weight:600; }
+  #intro p { font-size:15px; opacity:0.75; max-width:320px; line-height:1.4; margin:4px 0 20px; }
+  #intro img { width:160px; height:160px; object-fit:contain; border-radius:12px; border:1px solid rgba(255,255,255,0.15); margin-bottom:20px; }
+  #startBtn { background:#4f7cff; color:white; border:none; padding:14px 32px; border-radius:30px; font-size:16px; font-weight:600; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div id="intro">
+    <img src="${imageDataUrl}" alt="target preview" />
+    <h1>Point your camera at this image</h1>
+    <p>Print it, or open it on another screen. When it's in view, it'll pop up in 3D.</p>
+    <button id="startBtn">Start Camera</button>
+  </div>
+
+  <a-scene
+    mindar-image="imageTargetSrc: ${mindDataUri}; autoStart: false; uiScanning: no; uiLoading: no;"
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    embedded
+    style="width:100vw; height:100vh;"
+  >
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <a-entity mindar-image-target="targetIndex: 0">
+      <a-image src="${imageDataUrl}" position="0 0 0.15" width="1" height="1" transparent="true"></a-image>
+    </a-entity>
+  </a-scene>
+`;
+
+  const bodyScript = `
+  document.getElementById('startBtn').addEventListener('click', function () {
+    document.getElementById('intro').style.display = 'none';
+    document.querySelector('a-scene').systems['mindar-image-system'].start();
+  });
+`;
+
+  const tail = `
+</body>
+</html>`;
+
+  return head + TAG_OPEN + '>' + bodyScript + TAG_CLOSE + tail;
+}
+</script>
+</body>
+</html>
