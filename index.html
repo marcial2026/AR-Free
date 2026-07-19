@@ -6,6 +6,7 @@
 <title>Make Your AR Page</title>
 <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/davidshimjs-qrcodejs@0.0.2/qrcode.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body {
@@ -27,6 +28,31 @@
   }
   h1 { font-size: 20px; margin: 0 0 6px; }
   p.sub { color: #999; font-size: 14px; margin: 0 0 26px; line-height: 1.5; }
+
+  .field-label {
+    text-align: left;
+    font-size: 12px;
+    color: #999;
+    margin-bottom: 6px;
+  }
+  #qrText {
+    width: 100%;
+    background: #23252f;
+    border: 1px solid #2e3140;
+    color: #eee;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  #qrPreview {
+    display: flex;
+    justify-content: center;
+    background: #fff;
+    padding: 12px;
+    border-radius: 10px;
+  }
+  #qrPreview img, #qrPreview canvas { width: 140px; height: 140px; }
 
   #dropZone {
     display: block;
@@ -109,22 +135,34 @@
 
 <div id="card">
   <h1>Make your AR page</h1>
-  <p class="sub">Upload one picture. That's the image people scan with their phone — and it's also what pops up. Everything is compiled right here in your browser.</p>
+  <p class="sub">One tool, one output. Paste your live website link (or any text, if you don't have one yet), upload your picture, and you're done.</p>
 
+  <div class="field-label">Your live website link (paste it once you have it — see note below)</div>
+  <input id="qrText" type="text" placeholder="e.g. https://your-project.vercel.app" value="" />
+
+  <div class="field-label" style="margin-top:16px;">Picture to appear</div>
   <label id="dropZone" for="fileInput">
     <img id="preview" />
     <div class="hint" id="hint">Tap to choose a picture</div>
   </label>
   <input id="fileInput" type="file" accept="image/*" />
 
-  <button id="genBtn" disabled>Generate AR page</button>
+  <div id="qrPreviewWrap" style="display:none; margin-top:16px;">
+    <div class="field-label">QR code preview — this is what people scan</div>
+    <div id="qrPreview"></div>
+  </div>
+
+  <button id="genBtn" disabled>Generate everything</button>
   <div id="status"></div>
 
   <div class="steps">
-    1. Upload a picture with clear detail (a photo, poster, logo — avoid plain solid colors)<br>
-    2. Tap Generate — this takes a few seconds<br>
-    3. A file downloads: <b>ar-page.html</b><br>
-    4. Upload it to a free host (GitHub Pages, Netlify Drop) and open the link on a phone
+    <b>First time only:</b> upload any placeholder version to GitHub → Vercel once, just to get your permanent link (e.g. <code>https://your-project.vercel.app</code>). That link never changes again.<br><br>
+    <b>Every time after that:</b><br>
+    1. Paste that same link into the box above<br>
+    2. Upload your picture<br>
+    3. Tap Generate — downloads <b>index.html</b> + <b>qr-code.png</b><br>
+    4. Replace <b>index.html</b> in your GitHub repo (same filename) → push → same link updates automatically<br>
+    5. Print/display <b>qr-code.png</b> — anyone scans it with their normal camera, it opens your link, then they point the camera at it again inside the page to see the picture pop up
   </div>
 
   <div id="debugPanel">
@@ -161,6 +199,9 @@ console.warn = function (...args) { log('console.warn: ' + args.map(String).join
 log('Page loaded. Waiting for a picture…');
 
 const dropZone = document.getElementById('dropZone');
+const qrText = document.getElementById('qrText');
+const qrPreviewWrap = document.getElementById('qrPreviewWrap');
+const qrPreviewEl = document.getElementById('qrPreview');
 const fileInput = document.getElementById('fileInput');
 const preview = document.getElementById('preview');
 const hint = document.getElementById('hint');
@@ -217,6 +258,22 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+function generateQR(text) {
+  qrPreviewEl.innerHTML = '';
+  new QRCode(qrPreviewEl, {
+    text: text && text.trim() ? text.trim() : 'https://example.com',
+    width: 400,
+    height: 400,
+    colorDark: '#000000',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  qrPreviewWrap.style.display = 'block';
+  const canvas = qrPreviewEl.querySelector('canvas');
+  if (!canvas) throw new Error('QR canvas did not render.');
+  return canvas.toDataURL('image/png');
+}
+
 function loadImage(dataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -231,23 +288,27 @@ genBtn.addEventListener('click', async () => {
   log('Generate clicked. Starting pipeline…');
   genBtn.disabled = true;
   status.className = '';
-  status.textContent = 'Reading image…';
+  status.textContent = 'Making your QR code…';
 
   try {
-    log('Loading image into an <img> element…');
-    const img = await loadImage(chosenDataUrl);
-    log('Image element ready: ' + img.width + 'x' + img.height);
+    log('Generating QR code image from text: "' + qrText.value + '"');
+    const qrDataUrl = generateQR(qrText.value);
+    log('QR code image generated.');
+
+    log('Loading QR image into an <img> element for compiling…');
+    const qrImg = await loadImage(qrDataUrl);
+    log('QR image ready: ' + qrImg.width + 'x' + qrImg.height);
 
     log('Checking for window.MINDAR…');
     if (!window.MINDAR || !window.MINDAR.IMAGE || !window.MINDAR.IMAGE.Compiler) {
       throw new Error('MindAR compiler is not available (window.MINDAR.IMAGE.Compiler missing). The library may not have loaded.');
     }
-    log('MindAR compiler found. Starting compilation…');
+    log('MindAR compiler found. Starting compilation of the QR code as the AR target…');
 
-    status.textContent = 'Analyzing image features…';
+    status.textContent = 'Analyzing QR code features…';
     const compiler = new window.MINDAR.IMAGE.Compiler();
-    await compiler.compileImageTargets([img], (progress) => {
-      status.textContent = 'Analyzing image features… ' + Math.round(progress) + '%';
+    await compiler.compileImageTargets([qrImg], (progress) => {
+      status.textContent = 'Analyzing QR code features… ' + Math.round(progress) + '%';
     });
     log('Compilation finished.');
 
@@ -259,19 +320,27 @@ genBtn.addEventListener('click', async () => {
     log('Encoded target data as base64.');
 
     status.textContent = 'Building your page…';
-    const html = buildARPage(chosenDataUrl, mindDataUri);
+    const html = buildARPage(qrDataUrl, chosenDataUrl, mindDataUri);
     log('Built final HTML (' + html.length + ' characters).');
 
+    // Download the AR page
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'ar-page.html';
+    a.download = 'index.html';
     a.click();
     URL.revokeObjectURL(url);
-    log('Triggered download of ar-page.html.');
+    log('Triggered download of index.html.');
 
-    status.textContent = 'Done — ar-page.html downloaded ✓';
+    // Download the QR code image separately, so it can be printed
+    const qrA = document.createElement('a');
+    qrA.href = qrDataUrl;
+    qrA.download = 'qr-code.png';
+    qrA.click();
+    log('Triggered download of qr-code.png.');
+
+    status.textContent = 'Done — index.html + qr-code.png downloaded ✓';
     genBtn.disabled = false;
   } catch (err) {
     log('CAUGHT ERROR: ' + (err && err.message ? err.message : String(err)), 'e');
@@ -282,7 +351,7 @@ genBtn.addEventListener('click', async () => {
   }
 });
 
-function buildARPage(imageDataUrl, mindDataUri) {
+function buildARPage(qrDataUrl, contentDataUrl, mindDataUri) {
   const TAG_OPEN = '<' + 'script';
   const TAG_CLOSE = '<' + '/script>';
 
@@ -299,15 +368,15 @@ ${TAG_OPEN} src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-af
   #intro { position:fixed; inset:0; background:#0b0b0f; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; z-index:20; padding:24px; box-sizing:border-box; }
   #intro h1 { font-size:22px; margin-bottom:8px; font-weight:600; }
   #intro p { font-size:15px; opacity:0.75; max-width:320px; line-height:1.4; margin:4px 0 20px; }
-  #intro img { width:160px; height:160px; object-fit:contain; border-radius:12px; border:1px solid rgba(255,255,255,0.15); margin-bottom:20px; }
+  #intro img { width:160px; height:160px; object-fit:contain; border-radius:12px; background:#fff; padding:8px; margin-bottom:20px; }
   #startBtn { background:#4f7cff; color:white; border:none; padding:14px 32px; border-radius:30px; font-size:16px; font-weight:600; cursor:pointer; }
 </style>
 </head>
 <body>
   <div id="intro">
-    <img src="${imageDataUrl}" alt="target preview" />
-    <h1>Point your camera at this image</h1>
-    <p>Print it, or open it on another screen. When it's in view, it'll pop up in 3D.</p>
+    <img src="${qrDataUrl}" alt="QR target preview" />
+    <h1>Point your camera at this QR code</h1>
+    <p>Print it, or open it on another screen. When it's in view, your picture will pop up in 3D.</p>
     <button id="startBtn">Start Camera</button>
   </div>
 
@@ -322,7 +391,7 @@ ${TAG_OPEN} src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-af
   >
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
     <a-entity mindar-image-target="targetIndex: 0">
-      <a-image src="${imageDataUrl}" position="0 0 0.15" width="1" height="1" transparent="true"></a-image>
+      <a-image src="${contentDataUrl}" position="0 0 0.15" width="1" height="1" transparent="true"></a-image>
     </a-entity>
   </a-scene>
 `;
