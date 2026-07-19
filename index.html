@@ -312,7 +312,7 @@ ${TAG_OPEN} src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-af
   </div>
 
   <a-scene
-    mindar-image="imageTargetSrc: ${mindDataUri}; autoStart: false; uiScanning: no; uiLoading: no;"
+    id="arScene"
     color-space="sRGB"
     renderer="colorManagement: true, physicallyCorrectLights"
     vr-mode-ui="enabled: false"
@@ -328,9 +328,17 @@ ${TAG_OPEN} src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-af
 `;
 
   const bodyScript = `
+  var MIND_DATA_URI = "${mindDataUri}";
+  var sceneEl = document.getElementById('arScene');
+  sceneEl.setAttribute('mindar-image', {
+    imageTargetSrc: MIND_DATA_URI,
+    autoStart: false,
+    uiScanning: false,
+    uiLoading: false
+  });
   document.getElementById('startBtn').addEventListener('click', function () {
     document.getElementById('intro').style.display = 'none';
-    document.querySelector('a-scene').systems['mindar-image-system'].start();
+    sceneEl.systems['mindar-image-system'].start();
   });
 `;
 
